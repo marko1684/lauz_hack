@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patent Similarity Comparison</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 2em;
+        }
+
+        .search-section {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 150px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .options-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .option-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .comparison-container {
+            display: none;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .comparison-container.active {
+            display: block;
+        }
+
+        .comparison-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .comparison-header h2 {
+            font-size: 1.5em;
+        }
+
+        .patent-selector {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 10px 15px;
+            border-radius: 8px;
+            flex-wrap: wrap;
+        }
+
+        .patent-selector label {
+            font-weight: 600;
+        }
+
+        .patent-selector select {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            min-width: 250px;
+        }
+
+        .similarity-badge {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .patents-display {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .patent-panel {
+            padding: 30px;
+            overflow-y: auto;
+            max-height: 800px;
+        }
+
+        .patent-panel:first-child {
+            border-right: 2px solid #e0e0e0;
+            background: #f8f9fa;
+        }
+
+        .patent-info {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .patent-info h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.3em;
+        }
+
+        .patent-meta {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 8px;
+        }
+
+        .patent-url {
+            color: #667eea;
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .patent-url:hover {
+            text-decoration: underline;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-weight: 600;
+            font-size: 1.1em;
+        }
+
+        .section-content {
+            line-height: 1.8;
+            color: #444;
+            font-size: 15px;
+        }
+
+        .chunk {
+            padding: 8px;
+            border-radius: 5px;
+            margin: 5px 0;
+            transition: all 0.3s;
+        }
+
+        .chunk.highlighted {
+            background: linear-gradient(120deg, #f6d365 0%, #fda085 100%);
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(253, 160, 133, 0.3);
+            border-left: 4px solid #ff6b6b;
+            padding-left: 12px;
+        }
+
+        .chunk.highlighted-high {
+            background: linear-gradient(120deg, #fa709a 0%, #fee140 100%);
+            font-weight: 600;
+            box-shadow: 0 3px 12px rgba(250, 112, 154, 0.4);
+            border-left: 4px solid #ff0844;
+            padding-left: 12px;
+        }
+
+        .similarity-score {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 8px;
+            background: #667eea;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.2em;
+            color: #667eea;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        .error {
+            background: #fee;
+            border: 2px solid #fcc;
+            color: #c33;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .legend {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .legend-box {
+            width: 30px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        .legend-box.high {
+            background: linear-gradient(120deg, #fa709a 0%, #fee140 100%);
+            border-left: 3px solid #ff0844;
+        }
+
+        .legend-box.medium {
+            background: linear-gradient(120deg, #f6d365 0%, #fda085 100%);
+            border-left: 3px solid #ff6b6b;
+        }
+
+        @media (max-width: 1200px) {
+            .patents-display {
+                grid-template-columns: 1fr;
+            }
+
+            .patent-panel:first-child {
+                border-right: none;
+                border-bottom: 2px solid #e0e0e0;
+            }
+        }
+
+        .stats-bar {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px 20px;
+            border-radius: 8px;
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+        }
+
+        .stat-value {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Patent Similarity Analysis</h1>
+            
+            <div class="search-section">
+                <div class="input-group">
+                    <label for="patentTitle">Your Patent Title:</label>
+                    <input type="text" id="patentTitle" placeholder="Enter patent title...">
+                </div>
+            </div>
+
+            <div class="search-section">
+                <div class="input-group">
+                    <label for="patentText">Your Patent Description/Claims:</label>
+                    <textarea id="patentText" placeholder="Paste your patent text here (abstract, description, or claims)..."></textarea>
+                </div>
+            </div>
+
+            <div class="options-row">
+                <div class="option-group">
+                    <label for="topK">Number of Results:</label>
+                    <input type="number" id="topK" value="10" min="1" max="50">
+                </div>
+                <div class="option-group">
+                    <label for="minSimilarity">Min Similarity (%):</label>
+                    <input type="number" id="minSimilarity" value="30" min="0" max="100" step="5">
+                </div>
+                <div class="option-group">
+                    <button class="btn btn-primary" onclick="searchPatents()">
+                        🔍 Find Similar Patents
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="comparison-container" id="comparisonContainer">
+            <div class="comparison-header">
+                <h2>📊 Patent Comparison</h2>
+                
+                <div class="patent-selector">
+                    <label>Compare with:</label>
+                    <select id="patentSelect" onchange="updateComparison()">
+                        <option value="">Select a patent...</option>
+                    </select>
+                    <span class="similarity-badge" id="similarityBadge">-</span>
+                </div>
+            </div>
+
+            <div class="legend">
+                <strong>Similarity Highlighting:</strong>
+                <div class="legend-item">
+                    <div class="legend-box high"></div>
+                    <span>High Similarity (≥70%)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-box medium"></div>
+                    <span>Medium Similarity (50-69%)</span>
+                </div>
+            </div>
+
+            <div class="stats-bar" id="statsBar" style="display: none;">
+                <div class="stat-item">
+                    <span class="stat-label">Total Matches</span>
+                    <span class="stat-value" id="totalMatches">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">High Similarity</span>
+                    <span class="stat-value" id="highMatches">-</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Avg Similarity</span>
+                    <span class="stat-value" id="avgSimilarity">-</span>
+                </div>
+            </div>
+
+            <div class="patents-display">
+                <div class="patent-panel" id="yourPatent">
+                    <div class="loading">Loading your patent...</div>
+                </div>
+                <div class="patent-panel" id="matchedPatent">
+                    <div class="loading">Select a patent to compare...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        let searchResults = null;
+        let yourPatentData = null;
+
+        async function searchPatents() {
+            const title = document.getElementById('patentTitle').value.trim();
+            const text = document.getElementById('patentText').value.trim();
+            const topK = parseInt(document.getElementById('topK').value);
+            const minSimilarity = parseFloat(document.getElementById('minSimilarity').value) / 100;
+
+            if (!text) {
+                alert('Please enter patent text to search.');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '🔍 Searching...';
+
+            try {
+                // Search for similar patents
+                const response = await fetch(`${API_URL}/search?min_similarity=${minSimilarity}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        title: title || 'Your Patent',
+                        top_k: topK,
+                        by_patent: false
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                searchResults = data;
+                
+                // Store your patent data
+                yourPatentData = {
+                    title: title || 'Your Patent',
+                    text: text
+                };
+
+                // Group results by patent
+                const patentGroups = groupResultsByPatent(data.chunks);
+                
+                // Populate dropdown
+                populatePatentSelector(patentGroups);
+                
+                // Show comparison container
+                document.getElementById('comparisonContainer').classList.add('active');
+                
+                // Display your patent
+                displayYourPatent(yourPatentData, data.chunks);
+                
+                // Auto-select first patent if available
+                if (patentGroups.length > 0) {
+                    document.getElementById('patentSelect').selectedIndex = 1;
+                    updateComparison();
+                }
+
+            } catch (error) {
+                console.error('Search error:', error);
+                alert(`Search failed: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔍 Find Similar Patents';
+            }
+        }
+
+        function groupResultsByPatent(chunks) {
+            const groups = {};
+            
+            chunks.forEach(chunk => {
+                const url = chunk.patent_url;
+                if (!groups[url]) {
+                    groups[url] = {
+                        url: url,
+                        title: chunk.title,
+                        publication_date: chunk.publication_date,
+                        chunks: [],
+                        avgSimilarity: 0,
+                        maxSimilarity: 0
+                    };
+                }
+                groups[url].chunks.push(chunk);
+                groups[url].maxSimilarity = Math.max(groups[url].maxSimilarity, chunk.similarity_score);
+            });
+
+            // Calculate average similarity for each patent
+            Object.values(groups).forEach(patent => {
+                const sum = patent.chunks.reduce((acc, chunk) => acc + chunk.similarity_score, 0);
+                patent.avgSimilarity = sum / patent.chunks.length;
+            });
+
+            // Sort by average similarity
+            return Object.values(groups).sort((a, b) => b.avgSimilarity - a.avgSimilarity);
+        }
+
+        function populatePatentSelector(patentGroups) {
+            const select = document.getElementById('patentSelect');
+            select.innerHTML = '<option value="">Select a patent...</option>';
+            
+            patentGroups.forEach((patent, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${index + 1}. ${patent.title} (${(patent.avgSimilarity * 100).toFixed(1)}% avg)`;
+                select.appendChild(option);
+            });
+
+            // Update stats
+            updateStats(patentGroups);
+        }
+
+        function updateStats(patentGroups) {
+            const statsBar = document.getElementById('statsBar');
+            statsBar.style.display = 'flex';
+
+            const totalMatches = patentGroups.length;
+            const highMatches = patentGroups.filter(p => p.avgSimilarity >= 0.7).length;
+            const avgSimilarity = patentGroups.reduce((acc, p) => acc + p.avgSimilarity, 0) / totalMatches;
+
+            document.getElementById('totalMatches').textContent = totalMatches;
+            document.getElementById('highMatches').textContent = highMatches;
+            document.getElementById('avgSimilarity').textContent = `${(avgSimilarity * 100).toFixed(1)}%`;
+        }
+
+        function displayYourPatent(patentData, matchedChunks) {
+            const container = document.getElementById('yourPatent');
+            
+            // Split text into chunks (sentences or paragraphs)
+            const chunks = splitIntoChunks(patentData.text);
+            
+            // Find which chunks have matches
+            const chunkMatches = findMatchingChunks(chunks, matchedChunks);
+            
+            let html = `
+                <div class="patent-info">
+                    <h3>Your Patent</h3>
+                    <div class="patent-meta">
+                        <strong>${patentData.title}</strong>
+                    </div>
+                </div>
+                <div class="section">
+                    <div class="section-title">📄 Patent Content</div>
+                    <div class="section-content">
+            `;
+            
+            chunks.forEach((chunk, index) => {
+                const match = chunkMatches[index];
+                let chunkClass = '';
+                let scoreHtml = '';
+                
+                if (match) {
+                    if (match.similarity >= 0.7) {
+                        chunkClass = 'highlighted-high';
+                    } else if (match.similarity >= 0.5) {
+                        chunkClass = 'highlighted';
+                    }
+                    scoreHtml = `<span class="similarity-score">${(match.similarity * 100).toFixed(0)}%</span>`;
+                }
+                
+                html += `<div class="chunk ${chunkClass}">${escapeHtml(chunk)}${scoreHtml}</div>`;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+            
+            container.innerHTML = html;
+        }
+
+        async function updateComparison() {
+            const selectIndex = document.getElementById('patentSelect').value;
+            
+            if (selectIndex === '') {
+                document.getElementById('matchedPatent').innerHTML = '<div class="loading">Select a patent to compare...</div>';
+                document.getElementById('similarityBadge').textContent = '-';
+                return;
+            }
+
+            const patentGroups = groupResultsByPatent(searchResults.chunks);
+            const selectedPatent = patentGroups[parseInt(selectIndex)];
+            
+            // Update similarity badge
+            document.getElementById('similarityBadge').textContent = 
+                `${(selectedPatent.avgSimilarity * 100).toFixed(1)}% Avg Similarity`;
+            
+            // Show loading state
+            document.getElementById('matchedPatent').innerHTML = '<div class="loading">Loading full patent details...</div>';
+            
+            try {
+                // Fetch the full patent from the backend
+                const encodedUrl = encodeURIComponent(selectedPatent.url);
+                const response = await fetch(`${API_URL}/patent/${encodedUrl}`);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch patent: ${response.status}`);
+                }
+                
+                const fullPatent = await response.json();
+                
+                // Display the full patent with similarity data
+                displayFullPatent(fullPatent, selectedPatent);
+                
+                // Update your patent highlighting with full text comparison
+                displayYourPatentWithFullComparison(yourPatentData, fullPatent, selectedPatent);
+                
+            } catch (error) {
+                console.error('Error fetching full patent:', error);
+                // Fallback to chunk-based display
+                displayMatchedPatent(selectedPatent);
+                displayYourPatent(yourPatentData, selectedPatent.chunks);
+            }
+        }
+
+        function displayFullPatent(fullPatent, selectedPatent) {
+            const container = document.getElementById('matchedPatent');
+            
+            // Split each section into sentences for highlighting
+            const abstractSentences = splitIntoChunks(fullPatent.abstract);
+            const descriptionSentences = splitIntoChunks(fullPatent.description);
+            const claimsSentences = splitIntoChunks(fullPatent.claims);
+            
+            // Map chunks to sentences for similarity scores
+            const chunkScores = {};
+            selectedPatent.chunks.forEach(chunk => {
+                chunkScores[chunk.text] = chunk.similarity_score;
+            });
+            
+            let html = `
+                <div class="patent-info">
+                    <h3>${escapeHtml(fullPatent.title)}</h3>
+                    <div class="patent-meta">
+                        <strong>Publication Date:</strong> ${fullPatent.publication_date || 'N/A'}<br>
+                        <strong>URL:</strong> <a href="${fullPatent.url}" target="_blank" class="patent-url">${fullPatent.url}</a><br>
+                        <strong>Max Similarity:</strong> ${(selectedPatent.maxSimilarity * 100).toFixed(1)}%
+                    </div>
+                </div>
+            `;
+            
+            // Display Abstract
+            if (abstractSentences.length > 0) {
+                html += `<div class="section"><div class="section-title">📋 Abstract</div><div class="section-content">`;
+                abstractSentences.forEach(sentence => {
+                    const score = findBestMatchScore(sentence, selectedPatent.chunks);
+                    const chunkClass = score >= 0.7 ? 'highlighted-high' : score >= 0.5 ? 'highlighted' : '';
+                    const scoreHtml = score >= 0.5 ? `<span class="similarity-score">${(score * 100).toFixed(0)}%</span>` : '';
+                    html += `<div class="chunk ${chunkClass}">${escapeHtml(sentence)}${scoreHtml}</div>`;
+                });
+                html += `</div></div>`;
+            }
+            
+            // Display Description
+            if (descriptionSentences.length > 0) {
+                html += `<div class="section"><div class="section-title">📖 Description</div><div class="section-content">`;
+                descriptionSentences.forEach(sentence => {
+                    const score = findBestMatchScore(sentence, selectedPatent.chunks);
+                    const chunkClass = score >= 0.7 ? 'highlighted-high' : score >= 0.5 ? 'highlighted' : '';
+                    const scoreHtml = score >= 0.5 ? `<span class="similarity-score">${(score * 100).toFixed(0)}%</span>` : '';
+                    html += `<div class="chunk ${chunkClass}">${escapeHtml(sentence)}${scoreHtml}</div>`;
+                });
+                html += `</div></div>`;
+            }
+            
+            // Display Claims
+            if (claimsSentences.length > 0) {
+                html += `<div class="section"><div class="section-title">⚖️ Claims</div><div class="section-content">`;
+                claimsSentences.forEach(sentence => {
+                    const score = findBestMatchScore(sentence, selectedPatent.chunks);
+                    const chunkClass = score >= 0.7 ? 'highlighted-high' : score >= 0.5 ? 'highlighted' : '';
+                    const scoreHtml = score >= 0.5 ? `<span class="similarity-score">${(score * 100).toFixed(0)}%</span>` : '';
+                    html += `<div class="chunk ${chunkClass}">${escapeHtml(sentence)}${scoreHtml}</div>`;
+                });
+                html += `</div></div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function displayYourPatentWithFullComparison(patentData, fullPatent, selectedPatent) {
+            const container = document.getElementById('yourPatent');
+            
+            // Split your patent into sentences
+            const yourSentences = splitIntoChunks(patentData.text);
+            
+            // Combine all text from matched patent
+            const matchedFullText = `${fullPatent.abstract} ${fullPatent.description} ${fullPatent.claims}`;
+            const matchedSentences = splitIntoChunks(matchedFullText);
+            
+            let html = `
+                <div class="patent-info">
+                    <h3>Your Patent</h3>
+                    <div class="patent-meta">
+                        <strong>${patentData.title}</strong>
+                    </div>
+                </div>
+                <div class="section">
+                    <div class="section-title">📄 Patent Content</div>
+                    <div class="section-content">
+            `;
+            
+            // For each sentence in your patent, find best match in the full matched patent
+            yourSentences.forEach(sentence => {
+                let bestScore = 0;
+                let bestApiScore = 0;
+                
+                // Check against all matched sentences
+                matchedSentences.forEach(matchedSentence => {
+                    const textSim = calculateTextSimilarity(sentence, matchedSentence);
+                    if (textSim > bestScore) {
+                        bestScore = textSim;
+                    }
+                });
+                
+                // Also check against API chunk scores
+                const apiScore = findBestMatchScore(sentence, selectedPatent.chunks);
+                
+                // Combine scores: prioritize actual text match but boost with API score
+                const finalScore = Math.max(bestScore * 0.6 + apiScore * 0.4, apiScore);
+                
+                let chunkClass = '';
+                let scoreHtml = '';
+                
+                if (finalScore >= 0.7) {
+                    chunkClass = 'highlighted-high';
+                    scoreHtml = `<span class="similarity-score">${(finalScore * 100).toFixed(0)}%</span>`;
+                } else if (finalScore >= 0.5) {
+                    chunkClass = 'highlighted';
+                    scoreHtml = `<span class="similarity-score">${(finalScore * 100).toFixed(0)}%</span>`;
+                }
+                
+                html += `<div class="chunk ${chunkClass}">${escapeHtml(sentence)}${scoreHtml}</div>`;
+            });
+            
+            html += `</div></div>`;
+            container.innerHTML = html;
+        }
+
+        function findBestMatchScore(sentence, chunks) {
+            let bestScore = 0;
+            
+            chunks.forEach(chunk => {
+                const textSim = calculateTextSimilarity(sentence, chunk.text);
+                // Combine text similarity with API similarity score
+                const score = textSim * 0.4 + chunk.similarity_score * 0.6;
+                if (score > bestScore && textSim > 0.15) {
+                    bestScore = chunk.similarity_score; // Return API score for display
+                }
+            });
+            
+            return bestScore;
+        }
+
+        function displayMatchedPatent(patent) {
+            const container = document.getElementById('matchedPatent');
+            
+            // Group chunks by type
+            const chunksByType = {
+                abstract: [],
+                description: [],
+                claims: []
+            };
+            
+            patent.chunks.forEach(chunk => {
+                const type = chunk.chunk_type;
+                if (chunksByType[type]) {
+                    chunksByType[type].push(chunk);
+                }
+            });
+            
+            let html = `
+                <div class="patent-info">
+                    <h3>${escapeHtml(patent.title)}</h3>
+                    <div class="patent-meta">
+                        <strong>Publication Date:</strong> ${patent.publication_date || 'N/A'}<br>
+                        <strong>URL:</strong> <a href="${patent.url}" target="_blank" class="patent-url">${patent.url}</a><br>
+                        <strong>Max Similarity:</strong> ${(patent.maxSimilarity * 100).toFixed(1)}%
+                    </div>
+                </div>
+            `;
+            
+            // Display each section
+            const sectionTitles = {
+                abstract: '📋 Abstract',
+                description: '📖 Description',
+                claims: '⚖️ Claims'
+            };
+            
+            Object.keys(chunksByType).forEach(type => {
+                if (chunksByType[type].length > 0) {
+                    html += `
+                        <div class="section">
+                            <div class="section-title">${sectionTitles[type]}</div>
+                            <div class="section-content">
+                    `;
+                    
+                    chunksByType[type]
+                        .sort((a, b) => a.chunk_index - b.chunk_index)
+                        .forEach(chunk => {
+                            const similarity = chunk.similarity_score;
+                            let chunkClass = '';
+                            
+                            if (similarity >= 0.7) {
+                                chunkClass = 'highlighted-high';
+                            } else if (similarity >= 0.5) {
+                                chunkClass = 'highlighted';
+                            }
+                            
+                            html += `
+                                <div class="chunk ${chunkClass}">
+                                    ${escapeHtml(chunk.text)}
+                                    <span class="similarity-score">${(similarity * 100).toFixed(0)}%</span>
+                                </div>
+                            `;
+                        });
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            container.innerHTML = html;
+        }
+
+        function splitIntoChunks(text) {
+            // Split by sentences or double newlines
+            const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+            return sentences.map(s => s.trim()).filter(s => s.length > 0);
+        }
+
+        function findMatchingChunks(yourChunks, matchedChunks) {
+            const matches = {};
+            
+            yourChunks.forEach((yourChunk, index) => {
+                let bestMatch = null;
+                let bestScore = 0;
+                
+                matchedChunks.forEach(match => {
+                    // Calculate similarity using multiple factors
+                    const textSimilarity = calculateTextSimilarity(yourChunk, match.text);
+                    const apiSimilarity = match.similarity_score;
+                    
+                    // Weighted score: prioritize API similarity but boost with text overlap
+                    // This ensures chunks with actual word overlap get highlighted
+                    const combinedScore = (apiSimilarity * 0.6) + (textSimilarity * 0.4);
+                    
+                    if (combinedScore > bestScore && textSimilarity > 0.15) {
+                        bestScore = combinedScore;
+                        bestMatch = {
+                            chunk: match,
+                            similarity: apiSimilarity,  // Use API similarity for display
+                            textOverlap: textSimilarity
+                        };
+                    }
+                });
+                
+                if (bestMatch) {
+                    matches[index] = bestMatch;
+                }
+            });
+            
+            return matches;
+        }
+
+        function calculateTextSimilarity(text1, text2) {
+            // Normalize and split into words
+            const normalize = (text) => text.toLowerCase()
+                .replace(/[^\w\s]/g, ' ')
+                .split(/\s+/)
+                .filter(w => w.length > 2); // Filter out very short words
+            
+            const words1 = normalize(text1);
+            const words2 = normalize(text2);
+            
+            if (words1.length === 0 || words2.length === 0) return 0;
+            
+            // Create frequency maps for better matching
+            const freq1 = {};
+            const freq2 = {};
+            
+            words1.forEach(w => freq1[w] = (freq1[w] || 0) + 1);
+            words2.forEach(w => freq2[w] = (freq2[w] || 0) + 1);
+            
+            // Calculate overlap score
+            let overlap = 0;
+            const allWords = new Set([...words1, ...words2]);
+            
+            allWords.forEach(word => {
+                const count1 = freq1[word] || 0;
+                const count2 = freq2[word] || 0;
+                overlap += Math.min(count1, count2);
+            });
+            
+            // Normalize by average length
+            const avgLength = (words1.length + words2.length) / 2;
+            return overlap / avgLength;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Auto-load stats on page load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_URL}/stats`);
+                if (response.ok) {
+                    const stats = await response.json();
+                    console.log('Database loaded:', stats);
+                }
+            } catch (error) {
+                console.error('Could not load stats:', error);
+            }
+        });
+    </script>
+</body>
+</html>
