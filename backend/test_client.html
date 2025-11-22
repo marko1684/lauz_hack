@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patent Similarity Search - Test Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .input-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .input-group input[type="text"],
+        .input-group input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            margin-top: 15px;
+        }
+        
+        .btn-secondary:hover {
+            box-shadow: 0 5px 20px rgba(245, 87, 108, 0.4);
+        }
+        
+        .results {
+            margin-top: 20px;
+        }
+        
+        .result-item {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            transition: transform 0.2s;
+        }
+        
+        .result-item:hover {
+            transform: translateX(5px);
+            background: #e9ecef;
+        }
+        
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+        }
+        
+        .result-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            flex: 1;
+        }
+        
+        .similarity-score {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .result-meta {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .result-text {
+            color: #555;
+            line-height: 1.6;
+            margin-top: 10px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #e9ecef;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #495057;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Patent Similarity Search</h1>
+            <p>Find similar patents using AI-powered semantic search</p>
+        </div>
+        
+        <div class="card">
+            <div class="input-group">
+                <label for="patentText">Patent Text / Claim *</label>
+                <textarea 
+                    id="patentText" 
+                    rows="6" 
+                    placeholder="Enter your patent claim, abstract, or description here...&#10;&#10;Example: A hydrogen combustion engine comprising a fuel injection system with zero emissions and improved efficiency through catalytic conversion..."
+                ></textarea>
+            </div>
+            
+            <div class="input-group">
+                <label for="patentTitle">Patent Title (Optional)</label>
+                <input type="text" id="patentTitle" placeholder="e.g., Hydrogen Combustion Engine">
+            </div>
+            
+            <div class="options">
+                <div class="input-group">
+                    <label for="topK">Number of Results</label>
+                    <input type="number" id="topK" value="10" min="1" max="100">
+                </div>
+                
+                <div class="input-group">
+                    <label for="minSimilarity">Minimum Similarity (%)</label>
+                    <input type="number" id="minSimilarity" value="50" min="0" max="100" step="5">
+                </div>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="byPatent">
+                    <label for="byPatent">Group by Patent</label>
+                </div>
+            </div>
+            
+            <div class="input-group">
+                <label>Filter by Chunk Type</label>
+                <div class="options">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="chunkAbstract" value="abstract">
+                        <label for="chunkAbstract">Abstract</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="chunkClaimInd" value="claim_independent">
+                        <label for="chunkClaimInd">Independent Claims</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="chunkClaimDep" value="claim_dependent">
+                        <label for="chunkClaimDep">Dependent Claims</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="chunkDesc" value="description">
+                        <label for="chunkDesc">Description</label>
+                    </div>
+                </div>
+            </div>
+            
+            <button class="btn" onclick="searchPatents()">Search Similar Patents</button>
+            <button class="btn btn-secondary" onclick="window.location.href='../frontend/patent_comparison.html'">
+                📊 Open Advanced Comparison View
+            </button>
+        </div>
+        
+        <div id="statsContainer"></div>
+        <div id="resultsContainer"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        
+        // Load stats on page load
+        window.addEventListener('load', loadStats);
+        
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_URL}/stats`);
+                const stats = await response.json();
+                
+                document.getElementById('statsContainer').innerHTML = `
+                    <div class="card">
+                        <h3 style="margin-bottom: 15px; color: #333;">📊 Database Statistics</h3>
+                        <div class="stats">
+                            <div class="stat-item">
+                                <div class="stat-value">${stats.unique_patents}</div>
+                                <div class="stat-label">Patents</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${stats.total_chunks}</div>
+                                <div class="stat-label">Chunks</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${stats.embedding_dimension}D</div>
+                                <div class="stat-label">Embeddings</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${stats.faiss_enabled ? '✓' : '✗'}</div>
+                                <div class="stat-label">FAISS</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+        
+        async function searchPatents() {
+            const text = document.getElementById('patentText').value.trim();
+            const title = document.getElementById('patentTitle').value.trim();
+            const topK = parseInt(document.getElementById('topK').value);
+            const byPatent = document.getElementById('byPatent').checked;
+            const minSimilarity = parseFloat(document.getElementById('minSimilarity').value) / 100;
+            
+            // Get selected chunk types
+            const chunkTypes = [];
+            if (document.getElementById('chunkAbstract').checked) chunkTypes.push('abstract');
+            if (document.getElementById('chunkClaimInd').checked) chunkTypes.push('claim_independent');
+            if (document.getElementById('chunkClaimDep').checked) chunkTypes.push('claim_dependent');
+            if (document.getElementById('chunkDesc').checked) chunkTypes.push('description');
+            
+            if (!text) {
+                showError('Please enter some patent text to search.');
+                return;
+            }
+            
+            const resultsContainer = document.getElementById('resultsContainer');
+            resultsContainer.innerHTML = '<div class="card loading">🔄 Searching for similar patents...</div>';
+            
+            try {
+                const url = new URL(`${API_URL}/search`);
+                url.searchParams.append('min_similarity', minSimilarity);
+                
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        title: title || undefined,
+                        chunk_types: chunkTypes.length > 0 ? chunkTypes : undefined,
+                        top_k: topK,
+                        by_patent: byPatent
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                displayResults(data);
+            } catch (error) {
+                showError(`Search failed: ${error.message}`);
+            }
+        }
+        
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            
+            if (data.results_count === 0) {
+                resultsContainer.innerHTML = '<div class="card">No results found.</div>';
+                return;
+            }
+            
+            let html = `
+                <div class="card">
+                    <h3 style="margin-bottom: 15px; color: #333;">
+                        🎯 Found ${data.results_count} Similar ${data.patents ? 'Patents' : 'Chunks'}
+                    </h3>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <div class="stat-value">${data.processing_time_ms}ms</div>
+                            <div class="stat-label">Processing Time</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            if (data.patents) {
+                // Display patent results
+                data.patents.forEach((patent, index) => {
+                    const scoreColor = patent.avg_similarity > 0.7 ? '#28a745' : 
+                                     patent.avg_similarity > 0.5 ? '#ffc107' : '#6c757d';
+                    html += `
+                        <div class="result-item">
+                            <div class="result-header">
+                                <div class="result-title">${index + 1}. ${patent.title}</div>
+                                <div class="similarity-score" style="background: ${scoreColor}">
+                                    ${(patent.avg_similarity * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                            <div class="result-meta">
+                                <a href="${patent.patent_url}" target="_blank" style="color: #667eea; text-decoration: none;">
+                                    View Patent →
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                // Display chunk results
+                data.chunks.forEach((chunk, index) => {
+                    const scoreColor = chunk.similarity_score > 0.7 ? '#28a745' : 
+                                     chunk.similarity_score > 0.5 ? '#ffc107' : '#6c757d';
+                    html += `
+                        <div class="result-item">
+                            <div class="result-header">
+                                <div class="result-title">${index + 1}. ${chunk.title}</div>
+                                <div class="similarity-score" style="background: ${scoreColor}">
+                                    ${(chunk.similarity_score * 100).toFixed(1)}%
+                                </div>
+                            </div>
+                            <div class="result-meta">
+                                <span class="badge">${chunk.chunk_type}</span>
+                                <span>${chunk.publication_date}</span>
+                                <span>${chunk.tokens_approx} tokens</span>
+                                <a href="${chunk.patent_url}" target="_blank" style="color: #667eea; text-decoration: none;">
+                                    View Patent →
+                                </a>
+                            </div>
+                            <div class="result-text">
+                                ${chunk.text.length > 400 ? chunk.text.substring(0, 400) + '...' : chunk.text}
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            
+            resultsContainer.innerHTML = html;
+        }
+        
+        function showError(message) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            resultsContainer.innerHTML = `<div class="card error">❌ ${message}</div>`;
+        }
+    </script>
+</body>
+</html>
