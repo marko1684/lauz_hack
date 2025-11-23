@@ -4,6 +4,7 @@ import html
 import unicodedata
 from typing import List, Dict
 import logging
+from sentence_transformers import SentenceTransformer, util
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,6 +22,10 @@ class PatentNormalizer:
         self.input_path = input_json_path
         self.patents = []
         self.normalized_chunks = []
+        # Initialize sentence transformer model once for all semantic splits
+        logger.info("Loading sentence transformer model for semantic chunking...")
+        self.model = SentenceTransformer("sentence-transformers/all-mpnet-base-v2")
+        logger.info("Model loaded successfully")
         
     def load_patents(self):
         """Load patents from JSON file."""
@@ -33,12 +38,13 @@ class PatentNormalizer:
             logger.error(f"Error loading patents: {e}")
             return False
     
-    def clean_text(self, text: str) -> str:
+    def clean_text(self, text: str, remove_boilerplate: bool = False) -> str:
         """
         Clean text: lowercase, remove weird Unicode, strip HTML tags, normalize whitespace.
         
         Args:
             text: Raw text to clean
+            remove_boilerplate: If True, remove common patent boilerplate text
             
         Returns:
             Cleaned text
@@ -59,6 +65,45 @@ class PatentNormalizer:
         # Lowercase
         text = text.lower()
         
+        # Remove common patent boilerplate if requested
+        if remove_boilerplate:
+            # Remove figure references
+            text = re.sub(r'\bfig\.?\s*\d+[a-z]?\b', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'\bfigure\s+\d+[a-z]?\b', '', text, flags=re.IGNORECASE)
+            
+            # Remove reference numbers (e.g., "10", "20", "100" as standalone refs)
+            text = re.sub(r'\b\d{1,3}\b(?=\s)', '', text)
+            
+            # Remove common patent phrases
+            boilerplate_patterns = [
+                r'\bherein\b',
+                r'\bthereof\b',
+                r'\btherefrom\b',
+                r'\bthereby\b',
+                r'\bwherein\b',
+                r'\bhereby\b',
+                r'\baforesaid\b',
+                r'\bsaid\s+\w+\b',  # "said device", "said method"
+                r'\babove-mentioned\b',
+                r'\baforementioned\b',
+                r'\baccordingly\b',
+                r'\bpreferably\b',
+                r'\bembodiment\b',
+                r'\baspect\b',
+                r'\bvariant\b',
+                r'\bmodification\b',
+                r'\bfurthermore\b',
+                r'\bmoreover\b',
+                r'\bin accordance with\b',
+                r'\bwith respect to\b',
+                r'\bat least one\b',
+                r'\bone or more\b',
+                r'\bplurality of\b',
+            ]
+            
+            for pattern in boilerplate_patterns:
+                text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+        
         # Normalize whitespace (replace multiple spaces/newlines with single space)
         text = re.sub(r'\s+', ' ', text)
         
@@ -66,6 +111,53 @@ class PatentNormalizer:
         text = text.strip()
         
         return text
+    
+    def simple_split(self, text: str, max_tokens: int = 350) -> List[str]:
+        """
+        Fast sentence-based chunking without semantic analysis.
+        Groups sentences by token count only - good for real-time use.
+        
+        Args:
+            text: Text to split
+            max_tokens: Maximum tokens per chunk (approximate)
+            
+        Returns:
+            List of text chunks
+        """
+        if not text:
+            return []
+        
+        # Split by sentences
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        if not sentences:
+            return []
+        
+        if len(sentences) == 1:
+            return [sentences[0]]
+        
+        chunks = []
+        current_chunk = []
+        current_tokens = 0
+        
+        for sent in sentences:
+            sent_tokens = len(sent) // 4
+            
+            if current_tokens + sent_tokens > max_tokens and current_chunk:
+                # Save current chunk and start new
+                chunks.append(" ".join(current_chunk))
+                current_chunk = [sent]
+                current_tokens = sent_tokens
+            else:
+                current_chunk.append(sent)
+                current_tokens += sent_tokens
+        
+        # Add last chunk
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+        
+        return chunks
     
     def extract_claims(self, claims_text: str) -> Dict[str, List[str]]:
         """
@@ -113,13 +205,15 @@ class PatentNormalizer:
             'dependent': dependent_claims
         }
     
-    def split_into_chunks(self, text: str, max_tokens: int = 350) -> List[str]:
+    def semantic_split(self, text: str, max_tokens: int = 350, sim_threshold: float = 0.10) -> List[str]:
         """
-        Split text into chunks of approximately max_tokens size.
+        Split text into semantically coherent chunks using sentence embeddings.
+        Groups sentences by semantic similarity while respecting max_tokens limit.
         
         Args:
             text: Text to split
             max_tokens: Maximum tokens per chunk (approximate)
+            sim_threshold: Minimum cosine similarity to keep sentences together (0.10 default)
             
         Returns:
             List of text chunks
@@ -127,60 +221,50 @@ class PatentNormalizer:
         if not text:
             return []
         
-        # Split by sentences (periods followed by space)
-        # Handle multiple sentence ending patterns
+        # 1. Split text into sentences
         sentences = re.split(r'(?<=[.!?])\s+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        if not sentences:
+            return []
+        
+        if len(sentences) == 1:
+            return [sentences[0]]
+        
+        # 2. Generate embeddings for all sentences
+        embeddings = self.model.encode(sentences, convert_to_tensor=True)
         
         chunks = []
-        current_chunk = []
-        current_length = 0
+        current_chunk = [sentences[0]]
+        current_tokens = len(sentences[0]) // 4
         
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
+        for i in range(1, len(sentences)):
+            sent = sentences[i]
+            sent_tokens = len(sent) // 4
             
-            # Rough token estimate: ~4 characters per token
-            sentence_tokens = len(sentence) // 4
+            # Calculate similarity between current and previous sentence
+            sim = util.cos_sim(embeddings[i - 1], embeddings[i]).item()
             
-            # If a single sentence is too long, force split it
-            if sentence_tokens > max_tokens:
-                # Save current chunk if exists
-                if current_chunk:
-                    chunks.append(' '.join(current_chunk))
-                    current_chunk = []
-                    current_length = 0
-                
-                # Split long sentence by words
-                words = sentence.split()
-                temp_chunk = []
-                temp_length = 0
-                
-                for word in words:
-                    word_tokens = len(word) // 4 + 1
-                    if temp_length + word_tokens > max_tokens and temp_chunk:
-                        chunks.append(' '.join(temp_chunk))
-                        temp_chunk = [word]
-                        temp_length = word_tokens
-                    else:
-                        temp_chunk.append(word)
-                        temp_length += word_tokens
-                
-                if temp_chunk:
-                    current_chunk = temp_chunk
-                    current_length = temp_length
-            elif current_length + sentence_tokens > max_tokens and current_chunk:
-                # Save current chunk and start new one
-                chunks.append(' '.join(current_chunk))
-                current_chunk = [sentence]
-                current_length = sentence_tokens
+            # If similarity high → same logical unit
+            if sim >= sim_threshold:
+                if current_tokens + sent_tokens > max_tokens:
+                    # Would exceed max_tokens, save current chunk and start new
+                    chunks.append(" ".join(current_chunk))
+                    current_chunk = [sent]
+                    current_tokens = sent_tokens
+                else:
+                    # Add to current chunk
+                    current_chunk.append(sent)
+                    current_tokens += sent_tokens
             else:
-                current_chunk.append(sentence)
-                current_length += sentence_tokens
+                # Low similarity → new semantic segment
+                chunks.append(" ".join(current_chunk))
+                current_chunk = [sent]
+                current_tokens = sent_tokens
         
-        # Add remaining chunk
+        # Add last chunk
         if current_chunk:
-            chunks.append(' '.join(current_chunk))
+            chunks.append(" ".join(current_chunk))
         
         return chunks
     
@@ -203,10 +287,10 @@ class PatentNormalizer:
         if patent.get('abstract'):
             abstract_clean = self.clean_text(patent['abstract'])
             if abstract_clean:
-                # Split abstract if it's too long
+                # Split abstract if it's too long using semantic splitting
                 abstract_tokens = len(abstract_clean) // 4
                 if abstract_tokens > 400:
-                    abstract_chunks = self.split_into_chunks(abstract_clean, max_tokens=350)
+                    abstract_chunks = self.semantic_split(abstract_clean, max_tokens=350)
                     for idx, chunk_text in enumerate(abstract_chunks):
                         chunks.append({
                             'patent_url': patent_id,
@@ -234,15 +318,15 @@ class PatentNormalizer:
             parsed_claims = self.extract_claims(claims_clean)
             
             # Independent claims (most important)
-            # Split large claims into smaller chunks
+            # Split large claims into smaller chunks using semantic splitting
             for idx, claim in enumerate(parsed_claims['independent']):
                 claim_clean = self.clean_text(claim)
                 if claim_clean:
-                    # If claim is too large, split it
+                    # If claim is too large, split it semantically
                     claim_tokens = len(claim_clean) // 4
                     if claim_tokens > 350:
-                        # Split by sentences
-                        claim_sentences = self.split_into_chunks(claim_clean, max_tokens=300)
+                        # Split by semantic similarity
+                        claim_sentences = self.semantic_split(claim_clean, max_tokens=300)
                         for sub_idx, claim_chunk in enumerate(claim_sentences):
                             chunks.append({
                                 'patent_url': patent_id,
@@ -305,10 +389,10 @@ class PatentNormalizer:
                         'tokens_approx': current_tokens
                     })
         
-        # 3. Description chunks (paragraph level)
+        # 3. Description chunks (semantic paragraph level)
         if patent.get('description'):
             description_clean = self.clean_text(patent['description'])
-            desc_chunks = self.split_into_chunks(description_clean, max_tokens=300)
+            desc_chunks = self.semantic_split(description_clean, max_tokens=300)
             
             for idx, desc_chunk in enumerate(desc_chunks):
                 if desc_chunk:

@@ -23,14 +23,16 @@ logger = logging.getLogger(__name__)
 class PatentSearcher:
     """Search for similar patents using vector embeddings."""
     
-    def __init__(self, embeddings_file: str):
+    def __init__(self, embeddings_file: str, model_path: str = None):
         """
         Initialize the searcher.
         
         Args:
             embeddings_file: Path to the embeddings pickle file
+            model_path: Optional path to fine-tuned model directory (overrides default model)
         """
         self.embeddings_file = embeddings_file
+        self.model_path = model_path
         self.embeddings = None
         self.chunks = None
         self.model_type = None
@@ -58,10 +60,16 @@ class PatentSearcher:
         if self.model_type == "sentence-transformers":
             try:
                 from sentence_transformers import SentenceTransformer
-                logger.info("Loading Sentence Transformer model...")
-                # Temporarily using all-MiniLM-L6-v2 to match existing embeddings
-                # TODO: Re-vectorize with all-mpnet-base-v2 for better quality
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
+                
+                # Use fine-tuned model if provided, otherwise use default
+                if self.model_path:
+                    logger.info(f"Loading fine-tuned model from {self.model_path}...")
+                    self.model = SentenceTransformer(self.model_path)
+                else:
+                    logger.info("Loading default Sentence Transformer model...")
+                    # Temporarily using all-MiniLM-L6-v2 to match existing embeddings
+                    # TODO: Re-vectorize with all-mpnet-base-v2 for better quality
+                    self.model = SentenceTransformer('all-MiniLM-L6-v2')
             except ImportError:
                 logger.error("sentence-transformers not installed")
                 raise

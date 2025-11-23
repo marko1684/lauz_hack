@@ -210,3 +210,4 @@ __marimo__/
 **/*.pkl
 **/*.faiss
 **/*.csv
+**/patent-finetuned-model/**

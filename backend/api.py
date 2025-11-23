@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent / 'scraper'))
 from search import PatentSearcher
 from vectorize import PatentVectorizer
 from scraper import PatentScraper
+from normalize import PatentNormalizer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,7 @@ app.add_middleware(
 
 # Global state
 searcher: Optional[PatentSearcher] = None
+normalizer: Optional[PatentNormalizer] = None
 embeddings_path: Optional[str] = None
 faiss_path: Optional[str] = None
 
@@ -57,6 +59,21 @@ class PatentSubmission(BaseModel):
     )
     top_k: int = Field(10, ge=1, le=100, description="Number of results to return")
     by_patent: bool = Field(False, description="Group results by patent instead of chunks")
+    use_chunking: bool = Field(False, description="Apply semantic chunking to input text")
+
+
+class ChunkRequest(BaseModel):
+    """Model for text chunking request"""
+    text: str = Field(..., min_length=10, max_length=100000, description="Text to chunk")
+    max_tokens: int = Field(350, ge=50, le=1000, description="Maximum tokens per chunk")
+    sim_threshold: float = Field(0.10, ge=0.0, le=1.0, description="Similarity threshold for semantic grouping")
+
+
+class ChunkResponse(BaseModel):
+    """Model for chunked text response"""
+    chunks: List[str]
+    num_chunks: int
+    processing_time_ms: float
 
 
 class SimilarChunk(BaseModel):
@@ -87,6 +104,7 @@ class SearchResponse(BaseModel):
     results_count: int
     chunks: Optional[List[SimilarChunk]] = None
     patents: Optional[List[SimilarPatent]] = None
+    query_chunks: Optional[List[str]] = None  # The chunked query text if chunking was used
 
 
 class HealthResponse(BaseModel):
@@ -103,6 +121,27 @@ class ErrorResponse(BaseModel):
     detail: Optional[str] = None
 
 
+class SentenceMatch(BaseModel):
+    """Model for a sentence-level match"""
+    your_sentence: str
+    matched_sentence: str
+    similarity_score: float
+    section: str  # abstract, description, or claims
+
+
+class DetailedComparisonRequest(BaseModel):
+    """Request model for detailed comparison"""
+    your_text: str = Field(..., description="Your patent text")
+    matched_patent_url: str = Field(..., description="URL of the matched patent to compare against")
+
+
+class DetailedComparisonResponse(BaseModel):
+    """Response model for detailed comparison"""
+    your_sentences: List[Dict[str, Any]]  # Each sentence with its best match info
+    matched_sentences: List[Dict[str, Any]]  # Each matched patent sentence with match info
+    processing_time_ms: float
+
+
 class FullPatent(BaseModel):
     """Model for full scraped patent"""
     url: str
@@ -117,21 +156,32 @@ class FullPatent(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize the searcher on startup"""
-    global searcher, embeddings_path, faiss_path
+    global searcher, normalizer, embeddings_path, faiss_path
     
     # Default paths - can be configured via environment variables
     embeddings_path = os.getenv(
         "EMBEDDINGS_PATH",
-        str(Path(__file__).parent.parent / "scraper" / "test_embeddings.pkl")
+        str(Path(__file__).parent.parent / "scraper" / "full_embeddings.pkl")
     )
     faiss_path = os.getenv(
         "FAISS_PATH",
-        str(Path(__file__).parent.parent / "scraper" / "test_embeddings.faiss")
+        str(Path(__file__).parent.parent / "scraper" / "full_embeddings.faiss")
+    )
+    model_path = os.getenv(
+        "MODEL_PATH",
+        None  # Will use default model if not specified
     )
     
     try:
         logger.info(f"Loading embeddings from: {embeddings_path}")
-        searcher = PatentSearcher(embeddings_path)
+        if model_path:
+            logger.info(f"Using fine-tuned model from: {model_path}")
+        searcher = PatentSearcher(embeddings_path, model_path=model_path)
+        
+        # Initialize normalizer for semantic chunking
+        logger.info("Initializing patent normalizer for semantic chunking...")
+        normalizer = PatentNormalizer("")  # Empty path, we'll just use chunking methods
+        logger.info("Normalizer initialized successfully")
         
         # Load FAISS index if available
         if Path(faiss_path).exists():
@@ -177,6 +227,46 @@ async def health_check():
     )
 
 
+@app.post("/chunk", response_model=ChunkResponse, tags=["Preprocessing"])
+async def chunk_text(request: ChunkRequest):
+    """
+    Chunk text using semantic similarity-based splitting.
+    Groups sentences by semantic coherence while respecting token limits.
+    
+    - **text**: Text to chunk
+    - **max_tokens**: Maximum tokens per chunk (50-1000)
+    - **sim_threshold**: Similarity threshold for grouping sentences (0.0-1.0)
+    """
+    if normalizer is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Normalizer not initialized. Check server logs."
+        )
+    
+    start_time = datetime.now()
+    
+    try:
+        # Clean and chunk the text
+        cleaned_text = normalizer.clean_text(request.text)
+        chunks = normalizer.semantic_split(
+            cleaned_text,
+            max_tokens=request.max_tokens,
+            sim_threshold=request.sim_threshold
+        )
+        
+        end_time = datetime.now()
+        processing_time = (end_time - start_time).total_seconds() * 1000
+        
+        return ChunkResponse(
+            chunks=chunks,
+            num_chunks=len(chunks),
+            processing_time_ms=round(processing_time, 2)
+        )
+    except Exception as e:
+        logger.error(f"Error chunking text: {e}")
+        raise HTTPException(status_code=500, detail=f"Chunking failed: {str(e)}")
+
+
 @app.post("/search", response_model=SearchResponse, tags=["Search"])
 async def search_similar_patents(
     submission: PatentSubmission,
@@ -201,31 +291,71 @@ async def search_similar_patents(
     start_time = datetime.now()
     
     try:
-        # Perform search for each chunk type if specified
-        if submission.chunk_types:
-            all_results = []
-            for chunk_type in submission.chunk_types:
+        # Apply fast chunking if requested (uses simple sentence-based splitting)
+        # Clean text with boilerplate removal to reduce false matches
+        search_texts = [submission.text]
+        query_chunks = None
+        if submission.use_chunking and normalizer is not None:
+            cleaned_text = normalizer.clean_text(submission.text, remove_boilerplate=True)
+            chunks = normalizer.simple_split(cleaned_text, max_tokens=350)
+            if len(chunks) > 1:
+                search_texts = chunks
+                query_chunks = chunks  # Store for response
+                logger.info(f"Chunked input text into {len(chunks)} chunks")
+        elif normalizer is not None:
+            # Even without chunking, clean the text to remove boilerplate
+            cleaned_text = normalizer.clean_text(submission.text, remove_boilerplate=True)
+            if cleaned_text:
+                search_texts = [cleaned_text]
+        
+        # Aggregate results from all chunks with score averaging
+        chunk_scores = {}  # {chunk_key: [list of scores]}
+        chunk_data = {}    # {chunk_key: chunk dict}
+        
+        for text_chunk in search_texts:
+            # Perform search for each chunk type if specified
+            if submission.chunk_types:
+                for chunk_type in submission.chunk_types:
+                    results = searcher.search(
+                        text_chunk,
+                        top_k=submission.top_k * 3,  # Get more results for better averaging
+                        chunk_type=chunk_type
+                    )
+                    for chunk, score in results:
+                        chunk_key = (chunk['patent_url'], chunk['chunk_type'], chunk['chunk_index'])
+                        if chunk_key not in chunk_scores:
+                            chunk_scores[chunk_key] = []
+                            chunk_data[chunk_key] = chunk
+                        chunk_scores[chunk_key].append(score)
+            else:
+                # Search all chunks
                 results = searcher.search(
-                    submission.text,
-                    top_k=submission.top_k,
-                    chunk_type=chunk_type
+                    text_chunk,
+                    top_k=submission.top_k * 3  # Get more results for better averaging
                 )
-                all_results.extend(results)
-            
-            # Sort by similarity and take top_k
-            all_results.sort(key=lambda x: x[1], reverse=True)
-            results = all_results[:submission.top_k]
-        else:
-            # Search all chunks
-            results = searcher.search(
-                submission.text,
-                top_k=submission.top_k * 2  # Get more results for filtering
-            )
+                for chunk, score in results:
+                    chunk_key = (chunk['patent_url'], chunk['chunk_type'], chunk['chunk_index'])
+                    if chunk_key not in chunk_scores:
+                        chunk_scores[chunk_key] = []
+                        chunk_data[chunk_key] = chunk
+                    chunk_scores[chunk_key].append(score)
+        
+        # Calculate average scores (or max if only seen once)
+        all_results = []
+        for chunk_key, scores in chunk_scores.items():
+            # Average score across all input chunks that matched this result
+            avg_score = sum(scores) / len(scores) if len(search_texts) > 1 else scores[0]
+            all_results.append((chunk_data[chunk_key], avg_score))
+        
+        # Sort by average similarity and take top_k
+        all_results.sort(key=lambda x: x[1], reverse=True)
+        results = all_results
         
         # Apply similarity threshold filter
         if min_similarity > 0.0:
             results = [(chunk, score) for chunk, score in results if score >= min_similarity]
-            results = results[:submission.top_k]  # Trim to requested size
+        
+        results = results[:submission.top_k]  # Trim to requested size
         
         end_time = datetime.now()
         processing_time = (end_time - start_time).total_seconds() * 1000
@@ -249,7 +379,8 @@ async def search_similar_patents(
                         avg_similarity=round(score, 4)
                     )
                     for url, title, score in patent_results
-                ]
+                ],
+                query_chunks=query_chunks
             )
         else:
             # Return individual chunks
@@ -270,7 +401,8 @@ async def search_similar_patents(
                         similarity_score=round(score, 4)
                     )
                     for chunk, score in results
-                ]
+                ],
+                query_chunks=query_chunks
             )
     
     except Exception as e:
@@ -398,6 +530,166 @@ async def scrape_full_patent(patent_url: str):
             status_code=500,
             detail=f"Failed to scrape patent: {str(e)}"
         )
+
+
+@app.post("/compare", response_model=DetailedComparisonResponse, tags=["Comparison"])
+async def detailed_comparison(request: DetailedComparisonRequest):
+    """
+    Perform detailed sentence-by-sentence comparison between your patent and a matched patent.
+    This uses a cross-encoder model for more accurate pairwise comparison.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        from sentence_transformers import CrossEncoder
+        
+        # Initialize cross-encoder (only once, could be cached)
+        logger.info("Loading cross-encoder model for detailed comparison...")
+        cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        
+        # Scrape the matched patent
+        scraper = PatentScraper(csv_path="dummy.csv")
+        patent_data = {'url': request.matched_patent_url, 'title': 'Patent', 'publication_date': None}
+        result = scraper.scrape_patent_details(patent_data)
+        
+        if not result or result.get('error'):
+            raise HTTPException(status_code=404, detail="Could not scrape matched patent")
+        
+        # Clean junk from text
+        import re
+        def remove_junk(text):
+            cleaned_text = text
+
+            cleaned_text = re.sub(
+                r'\b(?:fig|figure|img|image|FIG|FIGURE|IMG|IMAGE|Figs|FIGS)\.?\s*\d+\b',
+                '', cleaned_text,
+                flags=re.IGNORECASE
+            )
+
+            cleaned_text = re.sub(r'\[\s*\d+\s*\]', '', cleaned_text)
+            cleaned_text = re.sub(r'\(\s*(?:\d+|[ivx]+|[a-zA-Z])\s*\)', '', cleaned_text, flags=re.IGNORECASE)
+            
+            cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
+            cleaned_text = re.sub(r'\n\s*\n', '\n\n', cleaned_text)
+            cleaned_text = cleaned_text.strip()
+
+            return cleaned_text
+        
+        def split_sentences(text):
+            sentences = re.split(r'[.!?]+\s+', text)
+            return [s.strip() for s in sentences if len(s.strip()) > 20]
+        
+        # Clean input text before processing
+        cleaned_your_text = remove_junk(request.your_text)
+        your_sentences = split_sentences(cleaned_your_text)
+        
+        # Clean and combine matched patent sections
+        matched_sections = {
+            'abstract': split_sentences(remove_junk(result.get('abstract', ''))),
+            'description': split_sentences(remove_junk(result.get('description', '')))[:50],  # Limit description
+            'claims': split_sentences(remove_junk(result.get('claims', '')))
+        }
+        
+        # Flatten all matched sentences
+        all_matched_sentences = []
+        sentence_to_section = {}
+        for section, sentences in matched_sections.items():
+            for sent in sentences:
+                all_matched_sentences.append(sent)
+                sentence_to_section[sent] = section
+        
+        logger.info(f"Stage 1: Pre-filtering with bi-encoder - {len(your_sentences)} your sentences vs {len(all_matched_sentences)} matched sentences")
+        
+        # Stage 1: Use bi-encoder to quickly pre-filter candidates (much faster)
+        from sentence_transformers import SentenceTransformer, util
+        import torch
+        
+        # Use the same model as the searcher for consistency
+        bi_encoder = searcher.model if searcher else SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        
+        # Encode all sentences
+        your_embeddings = bi_encoder.encode(your_sentences, convert_to_tensor=True, show_progress_bar=False)
+        matched_embeddings = bi_encoder.encode(all_matched_sentences, convert_to_tensor=True, show_progress_bar=False)
+        
+        # Compute cosine similarities (very fast)
+        cosine_scores = util.cos_sim(your_embeddings, matched_embeddings)
+        
+        # For each of your sentences, get top 10 candidate matches
+        top_k = 10
+        all_pairs = []
+        pair_to_indices = {}
+        
+        for i, your_sent in enumerate(your_sentences):
+            # Get top-k most similar matched sentences
+            top_results = torch.topk(cosine_scores[i], k=min(top_k, len(all_matched_sentences)))
+            
+            for score, j in zip(top_results[0], top_results[1]):
+                matched_sent = all_matched_sentences[j]
+                pair_key = len(all_pairs)
+                all_pairs.append([your_sent, matched_sent])
+                pair_to_indices[pair_key] = (i, int(j))
+        
+        logger.info(f"Stage 2: Cross-encoder on {len(all_pairs)} pre-filtered pairs (reduced from {len(your_sentences) * len(all_matched_sentences)})")
+        
+        # Stage 2: Use cross-encoder only on pre-filtered pairs
+        all_scores = cross_encoder.predict(all_pairs, batch_size=32, show_progress_bar=False)
+        
+        # Normalize scores to 0-1 range using sigmoid function
+        # Cross-encoder returns logits, not probabilities
+        import numpy as np
+        def sigmoid(x):
+            return 1 / (1 + np.exp(-x))
+        
+        all_scores = sigmoid(np.array(all_scores))
+        
+        # Build score matrix from sparse results
+        score_matrix = np.zeros((len(your_sentences), len(all_matched_sentences)))
+        
+        for pair_idx, (i, j) in pair_to_indices.items():
+            score_matrix[i, j] = all_scores[pair_idx]
+        
+        # Build results from score matrix
+        your_results = []
+        for i, your_sent in enumerate(your_sentences):
+            # Find best match for this sentence
+            best_j = score_matrix[i].argmax()
+            best_score = float(score_matrix[i, best_j])
+            best_match = all_matched_sentences[best_j] if best_score > 0 else None
+            best_section = sentence_to_section[all_matched_sentences[best_j]] if best_score > 0 else None
+            
+            your_results.append({
+                'text': your_sent,
+                'best_match': best_match,
+                'similarity': best_score,
+                'section': best_section
+            })
+        
+        # For matched patent sentences, find best match from your text
+        matched_results = []
+        for j, matched_sent in enumerate(all_matched_sentences):
+            best_i = score_matrix[:, j].argmax()
+            best_score = float(score_matrix[best_i, j])
+            best_your_sent = your_sentences[best_i] if best_score > 0.3 else None
+            
+            matched_results.append({
+                'text': matched_sent,
+                'section': sentence_to_section[matched_sent],
+                'best_match': best_your_sent,
+                'similarity': best_score
+            })
+        
+        processing_time = (time.time() - start_time) * 1000
+        
+        return DetailedComparisonResponse(
+            your_sentences=your_results,
+            matched_sentences=matched_results,
+            processing_time_ms=round(processing_time, 2)
+        )
+        
+    except Exception as e:
+        logger.error(f"Comparison error: {e}")
+        raise HTTPException(status_code=500, detail=f"Comparison failed: {str(e)}")
 
 
 if __name__ == "__main__":
